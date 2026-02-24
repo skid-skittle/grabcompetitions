@@ -1,7 +1,8 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, File, UploadFile
 from fastapi.security import HTTPBearer
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
@@ -13,6 +14,8 @@ from datetime import datetime, timezone, timedelta
 import jwt
 import bcrypt
 import random
+import json
+import aiofiles
 import string
 import httpx
 
@@ -943,6 +946,35 @@ async def get_winners():
 class AdminAuth(BaseModel):
     password: str
 
+# Image upload helper
+async def save_upload_file(upload_file: UploadFile, subfolder: str = "images") -> str:
+    # Create upload directory if it doesn't exist
+    upload_dir = ROOT_DIR / subfolder
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate unique filename
+    file_extension = Path(upload_file.filename).suffix
+    unique_filename = f"{uuid.uuid4().hex}{file_extension}"
+    file_path = upload_dir / unique_filename
+    
+    # Save file
+    async with aiofiles.open(file_path, 'wb') as f:
+        content = await upload_file.read()
+        await f.write(content)
+    
+    # Return public URL (adjust for your domain)
+    return f"https://grabcompetitions.onrender.com/{subfolder}/{unique_filename}"
+
+@api_router.post("/admin/upload-image")
+async def upload_image(file: UploadFile = File(...)):
+    """Upload an image file (admin only)"""
+    # You may want to add admin auth here if needed
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    file_url = await save_upload_file(file, "images")
+    return {"url": file_url}
+
 @api_router.post("/admin/verify")
 async def verify_admin(data: AdminAuth):
     """Verify admin password"""
@@ -980,6 +1012,75 @@ async def create_competition(data: CompetitionCreate, admin: AdminAuth):
     await db.competitions.insert_one(competition_doc)
     
     return {"competition_id": competition_id, "message": "Competition created"}
+
+@api_router.post("/admin/competitions/{competition_id}/instant-win")
+async def instant_win_competition(competition_id: str, admin: AdminAuth):
+    """Instantly select a winner for a competition (admin only)"""
+    await require_admin(admin.password)
+    
+    competition = await db.competitions.find_one(
+        {"competition_id": competition_id},
+        {"_id": 0}
+    )
+    
+    if not competition:
+        raise HTTPException(status_code=404, detail="Competition not found")
+    
+    if competition.get("winner_id"):
+        raise HTTPException(status_code=400, detail="Winner already selected")
+    
+    # Get all tickets for this competition
+    tickets = await db.tickets.find(
+        {"competition_id": competition_id},
+        {"_id": 0}
+    ).to_list(10000)
+    
+    if not tickets:
+        raise HTTPException(status_code=400, detail="No tickets sold")
+    
+    # Random selection
+    winning_ticket = random.choice(tickets)
+    
+    # Get winner user
+    winner_user = await db.users.find_one(
+        {"user_id": winning_ticket["user_id"]},
+        {"_id": 0, "password": 0}
+    )
+    
+    # Create winner record
+    winner_id = f"winner_{uuid.uuid4().hex[:12]}"
+    winner_doc = {
+        "winner_id": winner_id,
+        "competition_id": competition_id,
+        "user_id": winning_ticket["user_id"],
+        "user_email": winner_user["email"],
+        "user_name": winner_user["name"],
+        "ticket_number": winning_ticket["ticket_number"],
+        "prize_type": competition["prize_type"],
+        "prize_value": competition["prize_value"],
+        "announced_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.winners.insert_one(winner_doc)
+    
+    # Update competition
+    await db.competitions.update_one(
+        {"competition_id": competition_id},
+        {
+            "$set": {
+                "winner_id": winner_id,
+                "status": "ended",
+                "draw_date": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    return {
+        "winner_id": winner_id,
+        "winner_name": winner_user["name"],
+        "winning_ticket": winning_ticket["ticket_number"],
+        "prize_value": competition["prize_value"]
+    }
 
 @api_router.put("/admin/competitions/{competition_id}")
 async def update_competition(competition_id: str, data: CompetitionUpdate, admin: AdminAuth):
@@ -1185,6 +1286,10 @@ async def root():
 @api_router.get("/health")
 async def health():
     return {"status": "healthy"}
+
+# Serve uploaded images
+from fastapi.staticfiles import StaticFiles
+app.mount("/images", StaticFiles(directory="images"), name="images")
 
 # Include the router
 app.include_router(api_router)
