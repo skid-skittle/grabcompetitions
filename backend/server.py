@@ -18,13 +18,20 @@ import json
 import aiofiles
 import string
 import httpx
+import asyncio
+from pymongo.errors import ServerSelectionTimeoutError
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
+client = AsyncIOMotorClient(
+    mongo_url,
+    serverSelectionTimeoutMS=5000,
+    connectTimeoutMS=5000,
+    socketTimeoutMS=15000,
+)
 db = client[os.environ['DB_NAME']]
 
 # JWT Configuration
@@ -495,10 +502,15 @@ async def get_featured_competitions():
 @api_router.get("/competitions/{competition_id}")
 async def get_competition(competition_id: str):
     """Get single competition details"""
-    competition = await db.competitions.find_one(
-        {"competition_id": competition_id},
-        {"_id": 0}
-    )
+    try:
+        competition = await asyncio.wait_for(
+            db.competitions.find_one({"competition_id": competition_id}, {"_id": 0}),
+            timeout=10,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Database timeout while loading competition")
+    except ServerSelectionTimeoutError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     
     if not competition:
         raise HTTPException(status_code=404, detail="Competition not found")
@@ -1024,7 +1036,12 @@ async def create_competition(
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
-    await db.competitions.insert_one(competition_doc)
+    try:
+        await asyncio.wait_for(db.competitions.insert_one(competition_doc), timeout=10)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Database timeout while creating competition")
+    except ServerSelectionTimeoutError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     
     return {"competition_id": competition_id, "message": "Competition created"}
 
