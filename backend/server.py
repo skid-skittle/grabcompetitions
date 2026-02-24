@@ -1169,9 +1169,17 @@ async def get_all_competitions_admin(
 ):
     """Get all competitions for admin"""
     await require_admin(_get_admin_password(password, x_admin_password))
-    
-    competitions = await db.competitions.find({}, {"_id": 0}).sort([("created_at", -1)]).to_list(1000)
-    return competitions
+
+    try:
+        competitions = await asyncio.wait_for(
+            db.competitions.find({}, {"_id": 0}).sort([("created_at", -1)]).to_list(1000),
+            timeout=10,
+        )
+        return competitions
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Database timeout while listing competitions")
+    except ServerSelectionTimeoutError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
 @api_router.get("/admin/users")
 async def get_all_users(
@@ -1180,9 +1188,17 @@ async def get_all_users(
 ):
     """Get all users (admin only)"""
     await require_admin(_get_admin_password(password, x_admin_password))
-    
-    users = await db.users.find({}, {"_id": 0, "password": 0}).to_list(1000)
-    return users
+
+    try:
+        users = await asyncio.wait_for(
+            db.users.find({}, {"_id": 0, "password": 0}).to_list(1000),
+            timeout=10,
+        )
+        return users
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Database timeout while listing users")
+    except ServerSelectionTimeoutError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
 @api_router.get("/admin/orders")
 async def get_all_orders(
@@ -1191,9 +1207,17 @@ async def get_all_orders(
 ):
     """Get all orders (admin only)"""
     await require_admin(_get_admin_password(password, x_admin_password))
-    
-    orders = await db.orders.find({}, {"_id": 0}).sort([("created_at", -1)]).to_list(1000)
-    return orders
+
+    try:
+        orders = await asyncio.wait_for(
+            db.orders.find({}, {"_id": 0}).sort([("created_at", -1)]).to_list(1000),
+            timeout=10,
+        )
+        return orders
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Database timeout while listing orders")
+    except ServerSelectionTimeoutError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
 @api_router.get("/admin/competition/{competition_id}/entrants")
 async def get_competition_entrants(competition_id: str, password: str):
@@ -1315,29 +1339,39 @@ async def get_analytics(
 ):
     """Get platform analytics (admin only)"""
     await require_admin(_get_admin_password(password, x_admin_password))
-    
-    total_users = await db.users.count_documents({})
-    total_competitions = await db.competitions.count_documents({})
-    active_competitions = await db.competitions.count_documents({"status": "active"})
-    total_orders = await db.orders.count_documents({"status": "completed"})
-    total_tickets = await db.tickets.count_documents({})
-    
-    # Calculate total revenue
-    pipeline = [
-        {"$match": {"status": "completed"}},
-        {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
-    ]
-    revenue_result = await db.orders.aggregate(pipeline).to_list(1)
-    total_revenue = revenue_result[0]["total"] if revenue_result else 0
-    
-    return {
-        "total_users": total_users,
-        "total_competitions": total_competitions,
-        "active_competitions": active_competitions,
-        "total_orders": total_orders,
-        "total_tickets": total_tickets,
-        "total_revenue": total_revenue
-    }
+
+    try:
+        total_users = await asyncio.wait_for(db.users.count_documents({}), timeout=10)
+        total_competitions = await asyncio.wait_for(db.competitions.count_documents({}), timeout=10)
+        active_competitions = await asyncio.wait_for(
+            db.competitions.count_documents({"status": "active"}),
+            timeout=10,
+        )
+        total_orders = await asyncio.wait_for(
+            db.orders.count_documents({"status": "completed"}),
+            timeout=10,
+        )
+        total_tickets = await asyncio.wait_for(db.tickets.count_documents({}), timeout=10)
+
+        pipeline = [
+            {"$match": {"status": "completed"}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+        ]
+        revenue_result = await asyncio.wait_for(db.orders.aggregate(pipeline).to_list(1), timeout=10)
+        total_revenue = revenue_result[0]["total"] if revenue_result else 0
+
+        return {
+            "total_users": total_users,
+            "total_competitions": total_competitions,
+            "active_competitions": active_competitions,
+            "total_orders": total_orders,
+            "total_tickets": total_tickets,
+            "total_revenue": total_revenue
+        }
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Database timeout while computing analytics")
+    except ServerSelectionTimeoutError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
 # ====================== HEALTHCHECK ======================
 
