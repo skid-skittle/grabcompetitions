@@ -12,7 +12,7 @@ import { AuthPage } from './pages/AuthPage';
 import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { CheckoutSuccessPage } from './pages/CheckoutSuccessPage';
-import { AdminSimplePage } from './pages/AdminSimplePage';
+import { AdminDashboard } from './pages/AdminDashboard';
 import './app.css';
 import './index.css';
 
@@ -87,7 +87,7 @@ function App() {
               <Route path="/auth/callback" element={<AuthCallbackPage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
-              <Route path="/dashboard-admin" element={<AdminSimplePage />} />
+              <Route path="/admin" element={<AdminDashboard />} />
             </Routes>
           </main>
           <Footer />
