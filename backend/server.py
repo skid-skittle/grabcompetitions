@@ -20,6 +20,7 @@ import string
 import httpx
 import asyncio
 from pymongo.errors import ServerSelectionTimeoutError
+from pymongo.errors import PyMongoError, AutoReconnect
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -47,6 +48,8 @@ STRIPE_API_KEY = os.environ.get('STRIPE_API_KEY', 'sk_test_emergent')
 
 # Create the main app
 app = FastAPI(title="Grab Competitions API")
+
+APP_VERSION = os.environ.get("RENDER_GIT_COMMIT") or os.environ.get("GIT_COMMIT") or "unknown"
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -510,6 +513,8 @@ async def get_competition(competition_id: str):
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Database timeout while loading competition")
     except ServerSelectionTimeoutError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    except PyMongoError:
         raise HTTPException(status_code=503, detail="Database unavailable")
     
     if not competition:
@@ -1042,6 +1047,8 @@ async def create_competition(
         raise HTTPException(status_code=504, detail="Database timeout while creating competition")
     except ServerSelectionTimeoutError:
         raise HTTPException(status_code=503, detail="Database unavailable")
+    except (AutoReconnect, PyMongoError):
+        raise HTTPException(status_code=503, detail="Database unavailable")
     
     return {"competition_id": competition_id, "message": "Competition created"}
 
@@ -1180,6 +1187,11 @@ async def get_all_competitions_admin(
         raise HTTPException(status_code=504, detail="Database timeout while listing competitions")
     except ServerSelectionTimeoutError:
         raise HTTPException(status_code=503, detail="Database unavailable")
+    except (AutoReconnect, PyMongoError):
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    except Exception as e:
+        logging.exception("Admin competitions list failed")
+        raise HTTPException(status_code=500, detail=f"Admin competitions list error: {type(e).__name__}")
 
 @api_router.get("/admin/users")
 async def get_all_users(
@@ -1199,6 +1211,11 @@ async def get_all_users(
         raise HTTPException(status_code=504, detail="Database timeout while listing users")
     except ServerSelectionTimeoutError:
         raise HTTPException(status_code=503, detail="Database unavailable")
+    except (AutoReconnect, PyMongoError):
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    except Exception as e:
+        logging.exception("Admin users list failed")
+        raise HTTPException(status_code=500, detail=f"Admin users list error: {type(e).__name__}")
 
 @api_router.get("/admin/orders")
 async def get_all_orders(
@@ -1218,6 +1235,11 @@ async def get_all_orders(
         raise HTTPException(status_code=504, detail="Database timeout while listing orders")
     except ServerSelectionTimeoutError:
         raise HTTPException(status_code=503, detail="Database unavailable")
+    except (AutoReconnect, PyMongoError):
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    except Exception as e:
+        logging.exception("Admin orders list failed")
+        raise HTTPException(status_code=500, detail=f"Admin orders list error: {type(e).__name__}")
 
 @api_router.get("/admin/competition/{competition_id}/entrants")
 async def get_competition_entrants(competition_id: str, password: str):
@@ -1372,12 +1394,22 @@ async def get_analytics(
         raise HTTPException(status_code=504, detail="Database timeout while computing analytics")
     except ServerSelectionTimeoutError:
         raise HTTPException(status_code=503, detail="Database unavailable")
+    except (AutoReconnect, PyMongoError):
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    except Exception as e:
+        logging.exception("Admin analytics failed")
+        raise HTTPException(status_code=500, detail=f"Admin analytics error: {type(e).__name__}")
 
 # ====================== HEALTHCHECK ======================
 
 @api_router.get("/")
 async def root():
     return {"message": "Grab Competitions API", "status": "healthy"}
+
+
+@api_router.get("/version")
+async def version():
+    return {"version": APP_VERSION}
 
 @api_router.get("/health")
 async def health():
