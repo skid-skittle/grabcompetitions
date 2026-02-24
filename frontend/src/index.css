@@ -1,0 +1,160 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Barlow+Condensed:wght@100..900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --background: 0 0% 3%;
+        --foreground: 0 0% 98%;
+        --card: 0 0% 9%;
+        --card-foreground: 0 0% 98%;
+        --popover: 0 0% 9%;
+        --popover-foreground: 0 0% 98%;
+        --primary: 0 100% 62%;
+        --primary-foreground: 0 0% 98%;
+        --secondary: 0 0% 15%;
+        --secondary-foreground: 0 0% 98%;
+        --muted: 0 0% 15%;
+        --muted-foreground: 0 0% 60%;
+        --accent: 0 0% 15%;
+        --accent-foreground: 0 0% 98%;
+        --destructive: 0 84% 60%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 0 0% 15%;
+        --input: 0 0% 12%;
+        --ring: 0 100% 62%;
+        --chart-1: 0 100% 62%;
+        --chart-2: 45 100% 50%;
+        --chart-3: 120 60% 45%;
+        --chart-4: 200 70% 50%;
+        --chart-5: 280 65% 60%;
+        --radius: 0.75rem;
+    }
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #0A0A0A;
+    color: #FFFFFF;
+    overflow-x: hidden;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Barlow Condensed', sans-serif;
+}
+
+code {
+    font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #0A0A0A;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #FF3B3B;
+}
+
+/* Selection color */
+::selection {
+    background: rgba(255, 59, 59, 0.3);
+    color: #FFFFFF;
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+    body {
+        @apply bg-background text-foreground;
+    }
+}
+
+@layer components {
+    .btn-primary {
+        @apply bg-[#FF3B3B] text-white hover:bg-[#D93232] rounded-none uppercase font-bold tracking-wider transition-all duration-300;
+    }
+    
+    .btn-primary:hover {
+        box-shadow: 0 0 20px rgba(255, 59, 59, 0.4);
+    }
+    
+    .btn-secondary {
+        @apply bg-transparent border border-white/20 text-white hover:bg-white/10 hover:border-white/40 rounded-none uppercase font-semibold tracking-wide transition-colors duration-300;
+    }
+    
+    .card-competition {
+        @apply bg-[#161616] border border-white/5 hover:border-[#FF3B3B]/50 transition-colors duration-300 overflow-hidden relative rounded-xl;
+    }
+    
+    .input-dark {
+        @apply bg-[#1C1C1E] border border-white/10 text-white focus:border-[#FF3B3B] focus:ring-1 focus:ring-[#FF3B3B] rounded-lg h-12 px-4 placeholder:text-white/30;
+    }
+    
+    .badge-live {
+        @apply bg-[#FF3B3B] text-white text-[10px] font-bold px-2 py-1 uppercase tracking-wider animate-pulse rounded-sm;
+    }
+    
+    .badge-ending {
+        @apply bg-[#F59E0B] text-black text-[10px] font-bold px-2 py-1 uppercase tracking-wider rounded-sm;
+    }
+    
+    .text-gradient {
+        @apply bg-clip-text text-transparent bg-gradient-to-r from-[#FF3B3B] to-[#FFD700];
+    }
+    
+    .glow-red {
+        box-shadow: 0 0 40px -10px rgba(255, 59, 59, 0.3);
+    }
+}
+
+@layer utilities {
+    .text-balance {
+        text-wrap: balance;
+    }
+}
+
+@layer base {
+    [data-debug-wrapper="true"] {
+        display: contents !important;
+    }
+
+    [data-debug-wrapper="true"] > * {
+        margin-left: inherit;
+        margin-right: inherit;
+        margin-top: inherit;
+        margin-bottom: inherit;
+        padding-left: inherit;
+        padding-right: inherit;
+        padding-top: inherit;
+        padding-bottom: inherit;
+        column-gap: inherit;
+        row-gap: inherit;
+        gap: inherit;
+        border-left-width: inherit;
+        border-right-width: inherit;
+        border-top-width: inherit;
+        border-bottom-width: inherit;
+    }
+}
