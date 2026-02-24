@@ -1285,7 +1285,7 @@ async def root():
 
 @api_router.get("/health")
 async def health():
-    return {"status":"healthy"}
+    return {"status": "healthy"}
 
 # Include the router
 app.include_router(api_router)
