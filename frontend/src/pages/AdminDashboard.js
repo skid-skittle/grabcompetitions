@@ -16,6 +16,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
+const api = axios.create({
+  baseURL: API,
+  timeout: 15000,
+});
+
 export const AdminDashboard = () => {
   const [password, setPassword] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -48,7 +53,7 @@ export const AdminDashboard = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      const response = await axios.post(`${API}/admin/verify`, { password });
+      const response = await api.post(`/admin/verify`, { password });
       if (response.data.verified) {
         setIsAuthenticated(true);
         localStorage.setItem('admin_password', password);
@@ -70,12 +75,12 @@ export const AdminDashboard = () => {
     const formData = new FormData();
     formData.append('file', file);
     try {
-      const response = await axios.post(`${API}/admin/upload-image`, formData, {
+      const response = await api.post(`/admin/upload-image`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       setFormData(prev => ({ ...prev, prize_image: response.data.url }));
     } catch (error) {
-      alert('Image upload failed');
+      alert(error?.response?.data?.detail || error?.message || 'Image upload failed');
     } finally {
       setUploadingImage(false);
     }
@@ -100,7 +105,7 @@ export const AdminDashboard = () => {
         })),
       };
 
-      await axios.post(`${API}/admin/competitions`, payload, {
+      await api.post(`/admin/competitions`, payload, {
         headers: { 'X-Admin-Password': storedPassword }
       });
       alert('Competition created successfully!');
@@ -121,7 +126,7 @@ export const AdminDashboard = () => {
       setShowCreateForm(false);
       fetchData();
     } catch (error) {
-      alert(error?.response?.data?.detail || 'Failed to create competition');
+      alert(error?.response?.data?.detail || error?.message || 'Failed to create competition');
     } finally {
       setLoading(false);
     }
@@ -131,21 +136,37 @@ export const AdminDashboard = () => {
     if (!window.confirm('Select an instant winner? This cannot be undone.')) return;
     const storedPassword = localStorage.getItem('admin_password');
     try {
-      await axios.post(`${API}/admin/competitions/${competitionId}/instant-win`, {}, {
+      await api.post(`/admin/competitions/${competitionId}/instant-win`, {}, {
         headers: { 'X-Admin-Password': storedPassword }
       });
       alert('Winner selected successfully!');
       fetchData();
     } catch (error) {
-      alert('Failed to select winner');
+      alert(error?.response?.data?.detail || error?.message || 'Failed to select winner');
+    }
+  };
+
+  const handleDeleteCompetition = async (competitionId) => {
+    const storedPassword = localStorage.getItem('admin_password');
+    setLoading(true);
+    try {
+      await api.delete(`/admin/competitions/${competitionId}`, {
+        headers: { 'X-Admin-Password': storedPassword }
+      });
+      alert('Competition deleted');
+      fetchData();
+    } catch (error) {
+      alert(error?.response?.data?.detail || error?.message || 'Failed to delete competition');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleAddBalance = async (userId, amount) => {
     const storedPassword = localStorage.getItem('admin_password');
     try {
-      await axios.post(
-        `${API}/admin/user/${userId}/add-balance`,
+      await api.post(
+        `/admin/user/${userId}/add-balance`,
         { amount: Number(amount) },
         {
           headers: { 'X-Admin-Password': storedPassword }
@@ -154,7 +175,7 @@ export const AdminDashboard = () => {
       alert(`Added £${amount} to user balance`);
       fetchData();
     } catch (error) {
-      alert('Failed to add balance');
+      alert(error?.response?.data?.detail || error?.message || 'Failed to add balance');
     }
   };
 
@@ -163,10 +184,10 @@ export const AdminDashboard = () => {
     if (!storedPassword) return;
     try {
       const [compsRes, usersRes, ordersRes, analyticsRes] = await Promise.all([
-        axios.get(`${API}/admin/competitions`, { headers: { 'X-Admin-Password': storedPassword } }),
-        axios.get(`${API}/admin/users`, { headers: { 'X-Admin-Password': storedPassword } }),
-        axios.get(`${API}/admin/orders`, { headers: { 'X-Admin-Password': storedPassword } }),
-        axios.get(`${API}/admin/analytics`, { headers: { 'X-Admin-Password': storedPassword } })
+        api.get(`/admin/competitions`, { headers: { 'X-Admin-Password': storedPassword } }),
+        api.get(`/admin/users`, { headers: { 'X-Admin-Password': storedPassword } }),
+        api.get(`/admin/orders`, { headers: { 'X-Admin-Password': storedPassword } }),
+        api.get(`/admin/analytics`, { headers: { 'X-Admin-Password': storedPassword } })
       ]);
       setCompetitions(compsRes.data);
       setUsers(usersRes.data);
@@ -590,7 +611,7 @@ export const AdminDashboard = () => {
                           variant="destructive"
                           onClick={() => {
                             if (window.confirm('Delete this competition?')) {
-                              // Add delete functionality
+                              handleDeleteCompetition(comp.competition_id);
                             }
                           }}
                         >

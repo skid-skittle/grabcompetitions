@@ -17,10 +17,23 @@ export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
 
+    const getAuthHeaders = useCallback(() => {
+        const token = localStorage.getItem('token');
+        return token ? { Authorization: `Bearer ${token}` } : {};
+    }, []);
+
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            axios.defaults.headers.common.Authorization = `Bearer ${token}`;
+        }
+    }, []);
+
     const checkAuth = useCallback(async () => {
         try {
             const response = await axios.get(`${API}/auth/me`, {
-                withCredentials: true
+                withCredentials: true,
+                headers: getAuthHeaders()
             });
             setUser(response.data);
         } catch (error) {
@@ -28,7 +41,7 @@ export const AuthProvider = ({ children }) => {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [getAuthHeaders]);
 
     useEffect(() => {
         // CRITICAL: If returning from OAuth callback, skip the /me check.
@@ -46,6 +59,7 @@ export const AuthProvider = ({ children }) => {
         });
         setUser(response.data.user);
         localStorage.setItem('token', response.data.token);
+        axios.defaults.headers.common.Authorization = `Bearer ${response.data.token}`;
         return response.data;
     };
 
@@ -53,6 +67,7 @@ export const AuthProvider = ({ children }) => {
         const response = await axios.post(`${API}/auth/register`, { email, password, name });
         setUser(response.data.user);
         localStorage.setItem('token', response.data.token);
+        axios.defaults.headers.common.Authorization = `Bearer ${response.data.token}`;
         return response.data;
     };
 
@@ -72,12 +87,16 @@ export const AuthProvider = ({ children }) => {
 
     const logout = async () => {
         try {
-            await axios.post(`${API}/auth/logout`, {}, { withCredentials: true });
+            await axios.post(`${API}/auth/logout`, {}, {
+                withCredentials: true,
+                headers: getAuthHeaders()
+            });
         } catch (error) {
             console.error('Logout error:', error);
         }
         setUser(null);
         localStorage.removeItem('token');
+        delete axios.defaults.headers.common.Authorization;
     };
 
     const refreshUser = async () => {

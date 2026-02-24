@@ -33,11 +33,16 @@ export const AuthCallbackPage = () => {
                     withCredentials: true
                 });
 
+                if (response.data.token) {
+                    localStorage.setItem('token', response.data.token);
+                    axios.defaults.headers.common.Authorization = `Bearer ${response.data.token}`;
+                }
+
                 if (response.data.user) {
                     setUser(response.data.user);
                     setStatus('success');
                     setTimeout(() => {
-                        navigate('/dashboard');
+                        window.location.href = '/dashboard';
                     }, 2000);
                 } else {
                     setStatus('error');

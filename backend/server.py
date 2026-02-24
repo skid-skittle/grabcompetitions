@@ -364,7 +364,7 @@ async def process_session(request: Request, response: Response):
     email = oauth_data.get("email")
     name = oauth_data.get("name")
     picture = oauth_data.get("picture")
-    session_token = oauth_data.get("session_token")
+    oauth_session_token = oauth_data.get("session_token")
     
     # Find or create user
     user_doc = await db.users.find_one({"email": email}, {"_id": 0})
@@ -389,13 +389,16 @@ async def process_session(request: Request, response: Response):
         }
         await db.users.insert_one(user_doc)
     
+    token = create_jwt_token(user_id, email)
+
     # Store session
     expires_at = datetime.now(timezone.utc) + timedelta(days=7)
     await db.user_sessions.update_one(
         {"user_id": user_id},
         {
             "$set": {
-                "session_token": session_token,
+                "session_token": token,
+                "oauth_session_token": oauth_session_token,
                 "expires_at": expires_at.isoformat(),
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
@@ -406,7 +409,7 @@ async def process_session(request: Request, response: Response):
     # Set cookie
     response.set_cookie(
         key="session_token",
-        value=session_token,
+        value=token,
         httponly=True,
         secure=True,
         samesite="none",
@@ -415,6 +418,7 @@ async def process_session(request: Request, response: Response):
     )
     
     return {
+        "token": token,
         "user": {
             "user_id": user_id,
             "email": email,
@@ -1436,7 +1440,14 @@ async def serve_image(filename: str):
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=(
+        [
+            "http://localhost:3000",
+            "https://grabcompetitions.vercel.app",
+        ]
+        if os.environ.get("CORS_ORIGINS", "*").strip() in {"", "*"}
+        else [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+    ),
     allow_methods=["*"],
     allow_headers=["*"],
 )
