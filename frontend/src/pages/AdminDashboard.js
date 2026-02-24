@@ -85,7 +85,22 @@ export const AdminDashboard = () => {
     const storedPassword = localStorage.getItem('admin_password');
     setLoading(true);
     try {
-      await axios.post(`${API}/admin/competitions`, formData, {
+      const payload = {
+        ...formData,
+        prize_value: formData.prize_value === '' ? 0 : Number(formData.prize_value),
+        ticket_price: formData.ticket_price === '' ? 0 : Number(formData.ticket_price),
+        total_tickets: formData.total_tickets === '' ? 0 : Number(formData.total_tickets),
+        max_tickets_per_user:
+          formData.max_tickets_per_user === '' ? 10 : Number(formData.max_tickets_per_user),
+        end_date: formData.end_date ? new Date(formData.end_date).toISOString() : new Date().toISOString(),
+        instant_win_prizes: (formData.instant_win_prizes || []).map((p) => ({
+          ...p,
+          quantity: p.quantity === '' || p.quantity === undefined ? 0 : Number(p.quantity),
+          value: p.value === '' || p.value === undefined ? 0 : Number(p.value),
+        })),
+      };
+
+      await axios.post(`${API}/admin/competitions`, payload, {
         headers: { 'X-Admin-Password': storedPassword }
       });
       alert('Competition created successfully!');
@@ -106,14 +121,14 @@ export const AdminDashboard = () => {
       setShowCreateForm(false);
       fetchData();
     } catch (error) {
-      alert('Failed to create competition');
+      alert(error?.response?.data?.detail || 'Failed to create competition');
     } finally {
       setLoading(false);
     }
   };
 
   const handleInstantWin = async (competitionId) => {
-    if (!confirm('Select an instant winner? This cannot be undone.')) return;
+    if (!window.confirm('Select an instant winner? This cannot be undone.')) return;
     const storedPassword = localStorage.getItem('admin_password');
     try {
       await axios.post(`${API}/admin/competitions/${competitionId}/instant-win`, {}, {
@@ -129,9 +144,13 @@ export const AdminDashboard = () => {
   const handleAddBalance = async (userId, amount) => {
     const storedPassword = localStorage.getItem('admin_password');
     try {
-      await axios.post(`${API}/admin/user/${userId}/add-balance`, { amount }, {
-        headers: { 'X-Admin-Password': storedPassword }
-      });
+      await axios.post(
+        `${API}/admin/user/${userId}/add-balance`,
+        { amount: Number(amount) },
+        {
+          headers: { 'X-Admin-Password': storedPassword }
+        }
+      );
       alert(`Added £${amount} to user balance`);
       fetchData();
     } catch (error) {
@@ -141,12 +160,13 @@ export const AdminDashboard = () => {
 
   const fetchData = async () => {
     const storedPassword = localStorage.getItem('admin_password') || password;
+    if (!storedPassword) return;
     try {
       const [compsRes, usersRes, ordersRes, analyticsRes] = await Promise.all([
-        axios.get(`${API}/admin/competitions?password=${storedPassword}`),
-        axios.get(`${API}/admin/users?password=${storedPassword}`),
-        axios.get(`${API}/admin/orders?password=${storedPassword}`),
-        axios.get(`${API}/admin/analytics?password=${storedPassword}`)
+        axios.get(`${API}/admin/competitions`, { headers: { 'X-Admin-Password': storedPassword } }),
+        axios.get(`${API}/admin/users`, { headers: { 'X-Admin-Password': storedPassword } }),
+        axios.get(`${API}/admin/orders`, { headers: { 'X-Admin-Password': storedPassword } }),
+        axios.get(`${API}/admin/analytics`, { headers: { 'X-Admin-Password': storedPassword } })
       ]);
       setCompetitions(compsRes.data);
       setUsers(usersRes.data);
@@ -159,11 +179,7 @@ export const AdminDashboard = () => {
 
   useEffect(() => {
     const storedPassword = localStorage.getItem('admin_password');
-    if (storedPassword) {
-      setPassword(storedPassword);
-      setIsAuthenticated(true);
-      fetchData();
-    }
+    if (storedPassword) setPassword(storedPassword);
   }, []);
 
   const filteredCompetitions = competitions.filter(comp => {
@@ -174,14 +190,14 @@ export const AdminDashboard = () => {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-900 flex items-center justify-center p-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 w-full max-w-md"
         >
           <div className="flex items-center justify-center mb-6">
-            <Lock className="w-8 h-8 text-purple-400" />
+            <Lock className="w-8 h-8 text-blue-400" />
           </div>
           <h1 className="text-3xl font-bold text-white text-center mb-6">Admin Login</h1>
           <form onSubmit={handleLogin} className="space-y-4">
@@ -207,7 +223,7 @@ export const AdminDashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-900 p-6">
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold text-white">Admin Dashboard</h1>
@@ -435,6 +451,85 @@ export const AdminDashboard = () => {
                       Instant Win Competition
                     </Label>
                   </div>
+                  
+                  {formData.is_instant_win && (
+                    <div className="md:col-span-2 space-y-4">
+                      <Label className="text-white font-semibold">Instant Win Prizes</Label>
+                      {formData.instant_win_prizes.map((prize, index) => (
+                        <div key={index} className="flex gap-4 items-center bg-white/10 p-4 rounded-lg">
+                          <div className="flex-1">
+                            <Input
+                              placeholder="Prize name"
+                              value={prize.name}
+                              onChange={(e) => {
+                                const newPrizes = [...formData.instant_win_prizes];
+                                newPrizes[index].name = e.target.value;
+                                setFormData(prev => ({ ...prev, instant_win_prizes: newPrizes }));
+                              }}
+                              className="bg-white/10 border-white/20 text-white mb-2"
+                            />
+                            <div className="flex gap-2">
+                              <Input
+                                type="number"
+                                placeholder="Quantity"
+                                value={prize.quantity}
+                                onChange={(e) => {
+                                  const newPrizes = [...formData.instant_win_prizes];
+                                  newPrizes[index].quantity = parseInt(e.target.value) || 0;
+                                  setFormData(prev => ({ ...prev, instant_win_prizes: newPrizes }));
+                                }}
+                                className="bg-white/10 border-white/20 text-white flex-1"
+                              />
+                              <Input
+                                type="number"
+                                placeholder="Value (£)"
+                                value={prize.value}
+                                onChange={(e) => {
+                                  const newPrizes = [...formData.instant_win_prizes];
+                                  newPrizes[index].value = parseFloat(e.target.value) || 0;
+                                  setFormData(prev => ({ ...prev, instant_win_prizes: newPrizes }));
+                                }}
+                                className="bg-white/10 border-white/20 text-white flex-1"
+                              />
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => {
+                                  const newPrizes = formData.instant_win_prizes.filter((_, i) => i !== index);
+                                  setFormData(prev => ({ ...prev, instant_win_prizes: newPrizes }));
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                            <Input
+                              placeholder="Prize image URL (optional)"
+                              value={prize.image}
+                              onChange={(e) => {
+                                const newPrizes = [...formData.instant_win_prizes];
+                                newPrizes[index].image = e.target.value;
+                                setFormData(prev => ({ ...prev, instant_win_prizes: newPrizes }));
+                              }}
+                              className="bg-white/10 border-white/20 text-white w-full"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setFormData(prev => ({
+                          ...prev,
+                          instant_win_prizes: [...prev.instant_win_prizes, { name: '', quantity: 1, value: 0, image: '' }]
+                        }))}
+                        className="text-white border-white/20"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Prize
+                      </Button>
+                    </div>
+                  )}
                 </div>
                 <div className="flex justify-end mt-6">
                   <Button onClick={handleCreateCompetition} disabled={loading}>
@@ -494,7 +589,7 @@ export const AdminDashboard = () => {
                           size="sm"
                           variant="destructive"
                           onClick={() => {
-                            if (confirm('Delete this competition?')) {
+                            if (window.confirm('Delete this competition?')) {
                               // Add delete functionality
                             }
                           }}

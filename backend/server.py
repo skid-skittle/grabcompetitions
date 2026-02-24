@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, File, UploadFile
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, File, UploadFile, Header
 from fastapi.security import HTTPBearer
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -251,7 +251,14 @@ async def require_admin(password: str):
     """Verify admin password"""
     if password != ADMIN_PASSWORD:
         raise HTTPException(status_code=403, detail="Invalid admin password")
-    return True
+
+
+def _get_admin_password(password: str | None, x_admin_password: str | None) -> str:
+    pw = x_admin_password or password
+    if not pw:
+        raise HTTPException(status_code=401, detail="Admin password required")
+    return pw
+
 
 # ====================== AUTH ROUTES ======================
 
@@ -946,6 +953,10 @@ async def get_winners():
 class AdminAuth(BaseModel):
     password: str
 
+
+class BalanceUpdate(BaseModel):
+    amount: float
+
 # Image upload helper
 async def save_upload_file(upload_file: UploadFile, subfolder: str = "images") -> str:
     # Create upload directory if it doesn't exist
@@ -983,9 +994,13 @@ async def verify_admin(data: AdminAuth):
     return {"verified": True}
 
 @api_router.post("/admin/competitions")
-async def create_competition(data: CompetitionCreate, admin: AdminAuth):
+async def create_competition(
+    data: CompetitionCreate,
+    x_admin_password: str | None = Header(default=None, alias="X-Admin-Password"),
+    password: str | None = None,
+):
     """Create a new competition (admin only)"""
-    await require_admin(admin.password)
+    await require_admin(_get_admin_password(password, x_admin_password))
     
     competition_id = f"comp_{uuid.uuid4().hex[:12]}"
     competition_doc = {
@@ -1014,9 +1029,13 @@ async def create_competition(data: CompetitionCreate, admin: AdminAuth):
     return {"competition_id": competition_id, "message": "Competition created"}
 
 @api_router.post("/admin/competitions/{competition_id}/instant-win")
-async def instant_win_competition(competition_id: str, admin: AdminAuth):
+async def instant_win_competition(
+    competition_id: str,
+    x_admin_password: str | None = Header(default=None, alias="X-Admin-Password"),
+    password: str | None = None,
+):
     """Instantly select a winner for a competition (admin only)"""
-    await require_admin(admin.password)
+    await require_admin(_get_admin_password(password, x_admin_password))
     
     competition = await db.competitions.find_one(
         {"competition_id": competition_id},
@@ -1083,9 +1102,14 @@ async def instant_win_competition(competition_id: str, admin: AdminAuth):
     }
 
 @api_router.put("/admin/competitions/{competition_id}")
-async def update_competition(competition_id: str, data: CompetitionUpdate, admin: AdminAuth):
+async def update_competition(
+    competition_id: str,
+    data: CompetitionUpdate,
+    x_admin_password: str | None = Header(default=None, alias="X-Admin-Password"),
+    password: str | None = None,
+):
     """Update a competition (admin only)"""
-    await require_admin(admin.password)
+    await require_admin(_get_admin_password(password, x_admin_password))
     
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
     
@@ -1106,9 +1130,13 @@ async def update_competition(competition_id: str, data: CompetitionUpdate, admin
     return {"message": "Competition updated"}
 
 @api_router.delete("/admin/competitions/{competition_id}")
-async def delete_competition(competition_id: str, admin: AdminAuth):
+async def delete_competition(
+    competition_id: str,
+    x_admin_password: str | None = Header(default=None, alias="X-Admin-Password"),
+    password: str | None = None,
+):
     """Delete a competition (admin only)"""
-    await require_admin(admin.password)
+    await require_admin(_get_admin_password(password, x_admin_password))
     
     result = await db.competitions.delete_one({"competition_id": competition_id})
     
@@ -1118,25 +1146,34 @@ async def delete_competition(competition_id: str, admin: AdminAuth):
     return {"message": "Competition deleted"}
 
 @api_router.get("/admin/competitions")
-async def get_all_competitions_admin(password: str):
+async def get_all_competitions_admin(
+    password: str | None = None,
+    x_admin_password: str | None = Header(default=None, alias="X-Admin-Password"),
+):
     """Get all competitions for admin"""
-    await require_admin(password)
+    await require_admin(_get_admin_password(password, x_admin_password))
     
     competitions = await db.competitions.find({}, {"_id": 0}).sort([("created_at", -1)]).to_list(1000)
     return competitions
 
 @api_router.get("/admin/users")
-async def get_all_users(password: str):
+async def get_all_users(
+    password: str | None = None,
+    x_admin_password: str | None = Header(default=None, alias="X-Admin-Password"),
+):
     """Get all users (admin only)"""
-    await require_admin(password)
+    await require_admin(_get_admin_password(password, x_admin_password))
     
     users = await db.users.find({}, {"_id": 0, "password": 0}).to_list(1000)
     return users
 
 @api_router.get("/admin/orders")
-async def get_all_orders(password: str):
+async def get_all_orders(
+    password: str | None = None,
+    x_admin_password: str | None = Header(default=None, alias="X-Admin-Password"),
+):
     """Get all orders (admin only)"""
-    await require_admin(password)
+    await require_admin(_get_admin_password(password, x_admin_password))
     
     orders = await db.orders.find({}, {"_id": 0}).sort([("created_at", -1)]).to_list(1000)
     return orders
@@ -1235,24 +1272,32 @@ async def draw_winner(competition_id: str, admin: AdminAuth):
     }
 
 @api_router.post("/admin/user/{user_id}/add-balance")
-async def add_user_balance(user_id: str, admin: AdminAuth, amount: float):
+async def add_user_balance(
+    user_id: str,
+    data: BalanceUpdate,
+    x_admin_password: str | None = Header(default=None, alias="X-Admin-Password"),
+    password: str | None = None,
+):
     """Add balance to user account (admin only)"""
-    await require_admin(admin.password)
+    await require_admin(_get_admin_password(password, x_admin_password))
     
     result = await db.users.update_one(
         {"user_id": user_id},
-        {"$inc": {"balance": amount}}
+        {"$inc": {"balance": data.amount}}
     )
     
     if result.modified_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
     
-    return {"message": f"Added £{amount} to user balance"}
+    return {"message": f"Added £{data.amount} to user balance"}
 
 @api_router.get("/admin/analytics")
-async def get_analytics(password: str):
+async def get_analytics(
+    password: str | None = None,
+    x_admin_password: str | None = Header(default=None, alias="X-Admin-Password"),
+):
     """Get platform analytics (admin only)"""
-    await require_admin(password)
+    await require_admin(_get_admin_password(password, x_admin_password))
     
     total_users = await db.users.count_documents({})
     total_competitions = await db.competitions.count_documents({})
