@@ -19,6 +19,8 @@ import './index.css';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const BANNER_HEIGHT_PX = 36;
 
+// Force Vercel redeploy - v2
+
 const BackendStatusBanner = ({ status }) => {
   if (!status || status.kind === 'ok') return null;
 
