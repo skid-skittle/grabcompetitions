@@ -536,10 +536,6 @@ async def create_order(
     user: User = Depends(require_auth)
 ):
     """Create an order and initiate payment"""
-    from emergentintegrations.payments.stripe.checkout import (
-        StripeCheckout, CheckoutSessionRequest
-    )
-
     if not STRIPE_API_KEY or STRIPE_API_KEY.strip() in {"", "sk_test_emergent"}:
         raise HTTPException(status_code=503, detail="Payments are not configured (missing STRIPE_API_KEY)")
     
@@ -625,10 +621,17 @@ async def create_order(
             "tickets": tickets,
             "redirect_url": None
         }
-    
+
     await db.orders.insert_one(order_doc)
-    
+
     # Create Stripe checkout session
+    try:
+        from emergentintegrations.payments.stripe.checkout import (
+            StripeCheckout, CheckoutSessionRequest
+        )
+    except ImportError:
+        raise HTTPException(status_code=503, detail="Payments are unavailable (Stripe integration not installed)")
+
     origin_url = (data.origin_url or "").strip()
     if not origin_url:
         origin_url = (request.headers.get("origin") or "").strip()
