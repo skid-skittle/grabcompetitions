@@ -641,6 +641,11 @@ async def create_order(
         import stripe
 
         stripe.api_key = STRIPE_API_KEY
+
+        unit_amount = int(round(float(total_amount) * 100))
+        if unit_amount < 1:
+            raise HTTPException(status_code=400, detail="Invalid payment amount")
+
         session = stripe.checkout.Session.create(
             mode="payment",
             success_url=success_url,
@@ -651,7 +656,7 @@ async def create_order(
                     "quantity": 1,
                     "price_data": {
                         "currency": "gbp",
-                        "unit_amount": int(round(float(total_amount) * 100)),
+                        "unit_amount": unit_amount,
                         "product_data": {
                             "name": f"Tickets x{data.ticket_count}",
                             "description": competition.get("title", "Competition tickets"),
@@ -671,6 +676,15 @@ async def create_order(
     except HTTPException:
         raise
     except Exception as e:
+        try:
+            import stripe
+
+            if isinstance(e, stripe.error.StripeError):
+                msg = getattr(e, "user_message", None) or str(e)
+                raise HTTPException(status_code=400, detail=f"Stripe error: {msg}")
+        except HTTPException:
+            raise
+
         logging.exception("Stripe checkout session creation failed")
         raise HTTPException(status_code=502, detail=f"Payment provider error: {type(e).__name__}")
     
