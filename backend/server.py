@@ -142,6 +142,7 @@ class OrderCreate(BaseModel):
     competition_id: str
     ticket_count: int
     use_balance: bool = False
+    origin_url: Optional[str] = None
 
 class Order(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -538,6 +539,9 @@ async def create_order(
     from emergentintegrations.payments.stripe.checkout import (
         StripeCheckout, CheckoutSessionRequest
     )
+
+    if not STRIPE_API_KEY or STRIPE_API_KEY.strip() in {"", "sk_test_emergent"}:
+        raise HTTPException(status_code=503, detail="Payments are not configured (missing STRIPE_API_KEY)")
     
     # Get competition
     competition = await db.competitions.find_one(
@@ -625,8 +629,11 @@ async def create_order(
     await db.orders.insert_one(order_doc)
     
     # Create Stripe checkout session
-    body = await request.json()
-    origin_url = body.get("origin_url", "")
+    origin_url = (data.origin_url or "").strip()
+    if not origin_url:
+        origin_url = (request.headers.get("origin") or "").strip()
+    if not origin_url:
+        raise HTTPException(status_code=400, detail="origin_url is required")
     
     host_url = str(request.base_url).rstrip("/")
     webhook_url = f"{host_url}/api/webhook/stripe"
@@ -651,7 +658,13 @@ async def create_order(
         payment_methods=["card"]
     )
     
-    session = await stripe_checkout.create_checkout_session(checkout_request)
+    try:
+        session = await stripe_checkout.create_checkout_session(checkout_request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.exception("Stripe checkout session creation failed")
+        raise HTTPException(status_code=502, detail=f"Payment provider error: {type(e).__name__}")
     
     # Update order with session ID
     await db.orders.update_one(
