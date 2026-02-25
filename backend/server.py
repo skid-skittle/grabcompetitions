@@ -21,6 +21,7 @@ import httpx
 import asyncio
 from pymongo.errors import ServerSelectionTimeoutError
 from pymongo.errors import PyMongoError, AutoReconnect
+from starlette.responses import StreamingResponse
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -595,32 +596,88 @@ async def create_order(
     
     # If total amount is 0 (fully covered by balance), complete the order directly
     if total_amount <= 0:
-        # Deduct balance
-        await db.users.update_one(
-            {"user_id": user.user_id},
-            {"$inc": {"balance": -balance_used}}
-        )
-        
-        # Generate tickets
-        tickets = await generate_tickets(user.user_id, data.competition_id, order_id, data.ticket_count, competition)
-        
-        order_doc["status"] = "completed"
-        order_doc["tickets"] = [t["ticket_id"] for t in tickets]
-        
-        await db.orders.insert_one(order_doc)
-        
-        # Update sold tickets
-        await db.competitions.update_one(
-            {"competition_id": data.competition_id},
-            {"$inc": {"sold_tickets": data.ticket_count}}
-        )
-        
-        return {
-            "order_id": order_id,
-            "status": "completed",
-            "tickets": tickets,
-            "redirect_url": None
-        }
+        # Balance-only flow: reserve balance, then generate tickets + finalize order.
+        # Roll back (refund + delete docs) on failure so the client never sees an error
+        # while still receiving tickets.
+        try:
+            # Insert order immediately so we can clean it up on rollback
+            await db.orders.insert_one(order_doc)
+
+            # Reserve/deduct balance atomically
+            if balance_used > 0:
+                result = await db.users.update_one(
+                    {"user_id": user.user_id, "balance": {"$gte": balance_used}},
+                    {"$inc": {"balance": -balance_used}},
+                )
+                if result.modified_count == 0:
+                    await db.orders.update_one(
+                        {"order_id": order_id},
+                        {"$set": {"status": "failed"}},
+                    )
+                    raise HTTPException(status_code=400, detail="Insufficient balance")
+
+            # Generate tickets
+            tickets = await generate_tickets(
+                user.user_id,
+                data.competition_id,
+                order_id,
+                data.ticket_count,
+                competition,
+            )
+
+            # Update sold tickets
+            await db.competitions.update_one(
+                {"competition_id": data.competition_id},
+                {"$inc": {"sold_tickets": data.ticket_count}},
+            )
+
+            # Mark order complete
+            await db.orders.update_one(
+                {"order_id": order_id},
+                {
+                    "$set": {
+                        "status": "completed",
+                        "tickets": [t["ticket_id"] for t in tickets],
+                    }
+                },
+            )
+
+            return {
+                "order_id": order_id,
+                "status": "completed",
+                "tickets": tickets,
+                "redirect_url": None,
+            }
+        except HTTPException:
+            # bubble up after rollback handling below
+            raise
+        except Exception as e:
+            logging.exception("Balance-only order completion failed")
+
+            # Best-effort rollback
+            try:
+                await db.tickets.delete_many({"order_id": order_id})
+            except Exception:
+                pass
+
+            if balance_used > 0:
+                try:
+                    await db.users.update_one(
+                        {"user_id": user.user_id},
+                        {"$inc": {"balance": balance_used}},
+                    )
+                except Exception:
+                    pass
+
+            try:
+                await db.orders.update_one(
+                    {"order_id": order_id},
+                    {"$set": {"status": "failed"}},
+                )
+            except Exception:
+                pass
+
+            raise HTTPException(status_code=500, detail=f"Order completion error: {type(e).__name__}")
 
     await db.orders.insert_one(order_doc)
 
@@ -1194,6 +1251,34 @@ async def instant_win_competition(
         "winning_ticket": winning_ticket["ticket_number"],
         "prize_value": competition["prize_value"]
     }
+
+
+@api_router.get("/admin/competitions/{competition_id}/tickets.txt")
+async def download_competition_tickets_txt(
+    competition_id: str,
+    x_admin_password: str | None = Header(default=None, alias="X-Admin-Password"),
+    password: str | None = None,
+):
+    """Download all ticket numbers for a competition as a .txt file (admin only)"""
+    await require_admin(_get_admin_password(password, x_admin_password))
+
+    competition = await db.competitions.find_one({"competition_id": competition_id}, {"_id": 0})
+    if not competition:
+        raise HTTPException(status_code=404, detail="Competition not found")
+
+    async def _iter_lines():
+        cursor = db.tickets.find(
+            {"competition_id": competition_id},
+            {"_id": 0, "ticket_number": 1},
+        )
+        async for doc in cursor:
+            tn = doc.get("ticket_number")
+            if tn:
+                yield f"{tn}\n".encode("utf-8")
+
+    filename = f"{competition_id}_tickets.txt"
+    headers = {"Content-Disposition": f"attachment; filename=\"{filename}\""}
+    return StreamingResponse(_iter_lines(), media_type="text/plain; charset=utf-8", headers=headers)
 
 @api_router.put("/admin/competitions/{competition_id}")
 async def update_competition(
